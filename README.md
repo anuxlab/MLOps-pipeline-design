@@ -182,3 +182,12 @@ Phase 5 is now GitHub-hosted validated. The supplied CI, CT, candidate and regis
 ## Phase 6: Model Monitoring and Reliability
 
 Phase 6 adds batch monitoring for feature drift (KS), prediction drift (PSI), model performance (accuracy/ROC-AUC), input contracts and registry model integrity. Its manually triggered workflow automatically discovers the latest eligible Phase 5 registry artifact on `main`. See `docs/phase6-monitoring.md`.
+
+
+## Phase 6 GitHub validation
+
+Phase 6 normal monitoring passed on GitHub Actions run `42178707720`. The workflow automatically discovered and downloaded the Phase 5 registry, loaded the `dev` model and uploaded a healthy monitoring report (1,000 samples, 20 features, 0 drifted features, PSI 0.00754, accuracy 0.773, ROC-AUC 0.8703, zero alerts). See `docs/phase6-validation.md`.
+
+## Phase 7: Benchmarking and experimental evaluation
+
+Phase 7 adds repeatable CI, CT and monitoring experiments with wall-time and peak-RSS measurements, expected-failure robustness tests, JSON reports and CSV summaries. It automatically downloads the latest eligible Phase 5 registry artifact. See `docs/phase7-benchmarking.md`.
