@@ -69,10 +69,7 @@ jobs:
           MANUAL_SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
           DISCOVERY_LIMIT: ${{ inputs.discovery_limit || '50' }}
         run: |
-          python scripts/discover_candidate.py \\
-            --manual-run-id "$MANUAL_SOURCE_RUN_ID" \\
-            --manual-artifact-name "$MANUAL_SOURCE_ARTIFACT_NAME" \\
-            --limit "$DISCOVERY_LIMIT"
+          python scripts/discover_candidate.py --manual-run-id "$MANUAL_SOURCE_RUN_ID" --manual-artifact-name "$MANUAL_SOURCE_ARTIFACT_NAME" --limit "$DISCOVERY_LIMIT"
 
       - name: Download promoted candidate artifact
         uses: actions/download-artifact@v4
@@ -99,11 +96,7 @@ jobs:
 
       - name: Register and deploy candidate
         run: |
-          python -m mlops_lab.cli run-cd \\
-            --source-dir artifacts/incoming \\
-            --registry-dir model_registry \\
-            --environment "${{ inputs.target_environment || 'dev' }}" \\
-            --expected-source-run-id "${{ steps.source.outputs.run_id }}"
+          python -m mlops_lab.cli run-cd --source-dir artifacts/incoming --registry-dir model_registry --environment "${{ inputs.target_environment || 'dev' }}" --expected-source-run-id "${{ steps.source.outputs.run_id }}"
 
       - name: Upload delivery registry
         if: success()

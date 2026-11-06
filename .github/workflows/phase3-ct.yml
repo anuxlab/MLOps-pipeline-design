@@ -6,7 +6,7 @@ on:
       scenario:
         description: "Controlled data scenario for CT simulation"
         required: true
-        default: stable
+        default: covariate_shift
         type: choice
         options:
           - stable
@@ -18,7 +18,7 @@ on:
       scenario:
         description: "Controlled data scenario for CT simulation"
         required: false
-        default: stable
+        default: covariate_shift
         type: string
 
 permissions:
@@ -58,7 +58,7 @@ jobs:
       - name: Execute continuous training pipeline
         id: ct
         env:
-          CT_SCENARIO: ${{ inputs.scenario || 'stable' }}
+          CT_SCENARIO: ${{ inputs.scenario || 'covariate_shift' }}
         shell: bash
         run: |
           set +e
