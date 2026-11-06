@@ -30,3 +30,22 @@ These results are local functional validation. The Phase 3 GitHub Actions workfl
 - Concept drift is demonstrated by changing the label relationship while keeping feature distributions unchanged; baseline performance drops and candidate retraining recovers performance.
 - Corrupted data is rejected before model training.
 - Candidate promotion is simulated through quality and minimum-improvement gates. It does not deploy the candidate; deployment belongs to Phase 4.
+
+
+## GitHub Actions shell continuation fix (November 2026)
+
+A GitHub-hosted run exposed a workflow YAML shell issue: the `run-ct` command had
+literal doubled backslashes at line endings. Bash passed a literal `\\` to the
+CLI, so argparse rejected it and subsequent option lines were treated as
+commands. The Phase 3 workflow now invokes the CLI on one physical shell line,
+avoiding continuation escaping entirely:
+
+```bash
+python -m mlops_lab.cli run-ct --config configs/ct.yaml --output-dir artifacts/ct-runs --scenario "$CT_SCENARIO"
+```
+
+The workflow still captures the CT exit code, discovers and uploads the generated
+report for diagnostics, and uploads a deployable candidate only when the CT
+report confirms promotion. The four scenarios were locally re-executed:
+`stable`, `covariate_shift`, and `concept_drift` passed; `corrupted_data` failed
+as designed after writing its diagnostic report.

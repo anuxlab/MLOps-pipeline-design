@@ -62,10 +62,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -m mlops_lab.cli run-ct \\
-            --config configs/ct.yaml \\
-            --output-dir artifacts/ct-runs \\
-            --scenario "$CT_SCENARIO"
+          python -m mlops_lab.cli run-ct --config configs/ct.yaml --output-dir artifacts/ct-runs --scenario "$CT_SCENARIO"
           ct_exit_code=$?
           set -e
 
