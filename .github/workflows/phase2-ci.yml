@@ -1,0 +1,74 @@
+name: Phase 2 - ML Continuous Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      failure_mode:
+        description: "Optional controlled failure to verify CI rejection behavior"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - invalid_schema
+          - nan_feature
+          - force_quality_gate
+  workflow_call:
+    inputs:
+      failure_mode:
+        description: "Optional controlled failure mode"
+        required: false
+        default: "none"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase2-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ml-ci:
+    name: ML data, feature and model quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run complete test suite
+        run: pytest -q
+
+      - name: Execute ML CI pipeline
+        env:
+          FAILURE_MODE: ${{ inputs.failure_mode || 'none' }}
+        run: |
+          python -m mlops_lab.cli run-ci \
+            --config configs/ci.yaml \
+            --output-dir artifacts/ci-runs \
+            --failure-mode "$FAILURE_MODE"
+
+      - name: Upload CI reports and candidate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ci-runs/
+          if-no-files-found: warn
+          retention-days: 14
