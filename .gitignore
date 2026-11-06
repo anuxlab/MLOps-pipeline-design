@@ -16,3 +16,4 @@ artifacts/ci-runs/*
 artifacts/ct-runs/*
 !artifacts/ct-runs/.gitkeep
 artifacts/ct-validation/
+\nmodel_registry/\nartifacts/incoming/\n

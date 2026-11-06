@@ -137,3 +137,10 @@ Scenarios are controlled simulations:
 - `corrupted_data`: inject a NaN and verify data validation prevents training.
 
 CT reports contain data validation, KS drift statistics, baseline/candidate metrics, trigger reasons, promotion decision and resource profile. A candidate model is emitted only if its quality and improvement gates pass. Phase 4 will implement delivery/promotion orchestration.
+
+
+## Phase 4 — Continuous Delivery
+Phase 4 downloads a promoted candidate from a Phase 3 run, verifies and registers it with a SHA-256 manifest, and updates a simulated `dev`, `staging`, or `prod` environment pointer. It also includes a FastAPI prediction service.
+
+See `docs/phase4-continuous-delivery.md`. The workflow is manually triggered only. It requires the Phase 3 run ID and exact artifact name; a stable run without a candidate is intentionally rejected.
+

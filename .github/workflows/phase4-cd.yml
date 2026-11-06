@@ -1,0 +1,65 @@
+name: Phase 4 - Continuous Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ct_run_id:
+        description: "GitHub Actions run ID that produced the Phase 3 candidate"
+        required: true
+        type: string
+      source_artifact_name:
+        description: "Exact Phase 3 artifact name (for example phase3-ct-RUNID-1)"
+        required: true
+        type: string
+      target_environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  continuous-delivery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Download candidate from Phase 3 run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.source_artifact_name }}
+          run-id: ${{ inputs.source_ct_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/incoming
+      - name: Validate source and run delivery tests
+        run: pytest -q
+      - name: Register and deploy candidate
+        run: |
+          python -m mlops_lab.cli run-cd \
+            --source-dir artifacts/incoming \
+            --registry-dir model_registry \
+            --environment "${{ inputs.target_environment }}"
+      - name: Upload registry, deployment pointer and delivery report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-cd-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            model_registry/
+            artifacts/incoming/ct_report.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -29,3 +29,4 @@ A top-level orchestrator will coordinate these workflows. Cross-workflow trigger
 ## Phase 1 boundaries
 
 This phase does not yet implement a production model registry, persistent deployment, real-time monitoring, or drift-triggered retraining. It creates the baseline training workload and records the metadata needed by later phases.
+\n## Phase 4 — Continuous Delivery\n\nPhase 4 consumes a promoted Phase 3 candidate artifact, verifies and versions it in a filesystem model registry, and updates a simulated environment pointer. It includes a FastAPI inference service and checksum validation. See `phase4-continuous-delivery.md`.\n

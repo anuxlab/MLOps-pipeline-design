@@ -5,6 +5,7 @@ from .config import load_config
 from .pipeline import run_baseline
 from .ci_pipeline import run_ci
 from .ct_pipeline import run_ct
+from .registry import register_and_deploy
 
 
 def main():
@@ -33,6 +34,12 @@ def main():
         default="stable",
     )
 
+    cd = subparsers.add_parser("run-cd", help="Register and deploy a promoted CT candidate")
+    cd.add_argument("--source-dir", required=True)
+    cd.add_argument("--registry-dir", default="model_registry")
+    cd.add_argument("--environment", choices=["dev", "staging", "prod"], required=True)
+    cd.add_argument("--model-name", default="mlops-binary-classifier")
+
     args = parser.parse_args()
     if args.command == "run-baseline":
         config = load_config(args.config)
@@ -54,6 +61,12 @@ def main():
         print(f"ML CT pipeline completed: {run_dir}")
         report = json.loads((run_dir / "ct_report.json").read_text(encoding="utf-8"))
         print(json.dumps(report, indent=2))
+    elif args.command == "run-cd":
+        version_dir = register_and_deploy(
+            args.source_dir, args.registry_dir, args.environment, args.model_name
+        )
+        print(f"Model registered and deployed: {version_dir}")
+        print((version_dir / "manifest.json").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
