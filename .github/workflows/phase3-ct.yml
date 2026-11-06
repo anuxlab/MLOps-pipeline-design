@@ -1,0 +1,74 @@
+name: Phase 3 - Continuous Training
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Controlled data scenario for CT simulation"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - covariate_shift
+          - concept_drift
+          - corrupted_data
+  workflow_call:
+    inputs:
+      scenario:
+        description: "Controlled data scenario for CT simulation"
+        required: false
+        default: "stable"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase3-ct-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  continuous-training:
+    name: Drift detection and conditional retraining
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run complete test suite
+        run: pytest -q
+
+      - name: Execute continuous training pipeline
+        env:
+          CT_SCENARIO: ${{ inputs.scenario || 'stable' }}
+        run: |
+          python -m mlops_lab.cli run-ct \
+            --config configs/ct.yaml \
+            --output-dir artifacts/ct-runs \
+            --scenario "$CT_SCENARIO"
+
+      - name: Upload CT reports and candidate model
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-ct-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ct-runs/
+          if-no-files-found: warn
+          retention-days: 14

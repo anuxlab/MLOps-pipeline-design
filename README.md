@@ -1,8 +1,139 @@
-# pytest cache directory #
+# GitHub MLOps Laboratory
 
-This directory contains data from the pytest's cache plugin,
-which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
+A reproducible, runner-based simulation of Machine Learning Operations (MLOps), designed to evolve into three independently executable pipelines:
 
-**Do not** commit this to version control.
+- **CI** — continuous integration for code, data, features and models
+- **CT** — continuous training with validation and retraining triggers
+- **CD** — continuous delivery with model packaging, promotion and rollback simulation
 
-See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+This repository currently includes **Phase 1: Infrastructure and baseline** and **Phase 2: ML Continuous Integration**. It deliberately starts with a lightweight CPU-only scikit-learn workload so the pipeline can run on standard GitHub-hosted runners.
+
+## Current capabilities
+
+- Deterministic synthetic classification data generation
+- Train/test split with a fixed random seed
+- Logistic Regression baseline model
+- Accuracy, precision, recall, F1 and ROC-AUC metrics
+- Model artifact (`joblib`) and machine-readable metadata
+- Execution profiling: wall time, process CPU time and peak RSS where supported
+- Manually triggered GitHub Actions workflows for baseline and ML CI
+- Data contracts, train-only feature scaling, model quality gates and controlled failure injection
+- Unit tests for data generation, training and metrics
+
+## Quick start
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install -e .
+python -m mlops_lab.cli run-baseline --config configs/baseline.yaml
+pytest -q
+
+# Phase 2 ML CI pipeline
+python -m mlops_lab.cli run-ci --config configs/ci.yaml
+```
+
+Phase 1 outputs are written to `artifacts/runs/<run_id>/`; Phase 2 outputs are written to `artifacts/ci-runs/<run_id>/`.
+
+```text
+artifacts/
+├── runs/<run_id>/                 # Phase 1
+│   ├── model.joblib
+│   ├── metrics.json
+│   ├── run_metadata.json
+│   └── resource_profile.json
+└── ci-runs/<run_id>/              # Phase 2
+    ├── candidate_model.joblib     # only when all gates pass
+    ├── ci_report.json
+    ├── metrics.json
+    └── resource_profile.json
+```
+
+The `run_id` is deterministic by default for a given invocation timestamp? No: a unique UTC timestamp plus short UUID is used to avoid overwriting prior runs. Model training itself is deterministic for the configured seed.
+
+## Run options
+
+```bash
+python -m mlops_lab.cli run-baseline \
+  --config configs/baseline.yaml \
+  --output-dir artifacts/runs
+```
+
+## Phase 2 — ML Continuous Integration
+
+Run locally:
+
+```bash
+python -m mlops_lab.cli run-ci --config configs/ci.yaml
+```
+
+Exercise controlled rejection paths:
+
+```bash
+python -m mlops_lab.cli run-ci --config configs/ci.yaml --failure-mode invalid_schema
+python -m mlops_lab.cli run-ci --config configs/ci.yaml --failure-mode nan_feature
+python -m mlops_lab.cli run-ci --config configs/ci.yaml --failure-mode force_quality_gate
+```
+
+Each controlled failure should exit non-zero but still write `ci_report.json`, allowing the workflow to upload diagnostic evidence.
+
+GitHub: **Actions → Phase 2 - ML Continuous Integration → Run workflow**. Select `none` for the normal passing run or a failure mode to test rejection behavior.
+
+## GitHub Actions
+
+Go to **Actions → Phase 1 - Baseline ML → Run workflow**. Both workflows are manually triggerable. Phase 2 is also reusable through `workflow_call`; neither runs automatically on every push.
+
+The workflow:
+1. Checks out the repository.
+2. Sets up Python.
+3. Installs dependencies.
+4. Runs tests.
+5. Executes the baseline training workload.
+6. Uploads the run directory as a workflow artifact.
+
+## Design decisions
+
+- **No cloud credentials are required.**
+- **No GPU or external dataset download is required.**
+- Artifacts are passed between jobs/workflows using GitHub Actions artifacts in later phases.
+- GitHub Actions artifacts are execution outputs, not a permanent model registry. A later phase will add explicit retention/versioning semantics.
+- The runner profile is an observational estimate, not a complete hardware benchmark. Hosted runner hardware can vary.
+
+## Roadmap
+
+| Phase | Scope |
+|---|---|
+| 1 | Repository foundation, baseline ML workload, runner profiling | Completed |
+| 2 | CI: tests, data contracts, feature checks, model quality gates | Implemented |
+| 3 | CT: data versions, drift, scheduled/manual retraining |
+| 4 | CD: model registry, staging, API tests, promotion and rollback |
+| 5 | End-to-end orchestration and artifact handoffs |
+| 6 | Monitoring, fault injection and recovery |
+| 7 | Benchmark experiments and statistical analysis |
+| 8 | Research documentation and reproducible results |
+
+## Repository layout
+
+See `docs/architecture.md`, `docs/phase1-implementation.md` and `docs/phase2-ci.md`.
+
+
+## Phase 3: Continuous Training
+
+The CT pipeline is independently executable through `.github/workflows/phase3-ct.yml`.
+
+```bash
+python -m mlops_lab.cli run-ct --config configs/ct.yaml --scenario stable
+python -m mlops_lab.cli run-ct --config configs/ct.yaml --scenario covariate_shift
+python -m mlops_lab.cli run-ct --config configs/ct.yaml --scenario concept_drift
+python -m mlops_lab.cli run-ct --config configs/ct.yaml --scenario corrupted_data
+```
+
+Scenarios are controlled simulations:
+- `stable`: no expected retraining trigger.
+- `covariate_shift`: shift feature distributions and test drift-triggered retraining.
+- `concept_drift`: change the current label relationship and test performance-triggered retraining.
+- `corrupted_data`: inject a NaN and verify data validation prevents training.
+
+CT reports contain data validation, KS drift statistics, baseline/candidate metrics, trigger reasons, promotion decision and resource profile. A candidate model is emitted only if its quality and improvement gates pass. Phase 4 will implement delivery/promotion orchestration.
