@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import platform
 import uuid
+import os
+import hashlib
 
 import joblib
 import numpy as np
@@ -82,6 +84,12 @@ def run_ct(config: dict, output_dir=None, scenario="stable") -> Path:
         "scenario": scenario,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "python_version": platform.python_version(),
+        "source": {
+            "github_run_id": os.getenv("GITHUB_RUN_ID") or None,
+            "github_run_attempt": os.getenv("GITHUB_RUN_ATTEMPT") or None,
+            "commit": os.getenv("GITHUB_SHA") or None,
+            "branch": os.getenv("GITHUB_REF_NAME") or None,
+        },
         "status": "failed",
         "errors": [],
     }
@@ -164,6 +172,7 @@ def run_ct(config: dict, output_dir=None, scenario="stable") -> Path:
                 candidate_valid = candidate_metrics["accuracy"] >= min_candidate
                 promoted = bool(candidate_valid and improvement >= min_improvement)
                 report["candidate"] = {
+                    "trained": True,
                     "metrics": candidate_metrics,
                     "accuracy_improvement": improvement,
                     "minimum_accuracy": min_candidate,
@@ -172,10 +181,25 @@ def run_ct(config: dict, output_dir=None, scenario="stable") -> Path:
                     "promoted": promoted,
                 }
                 if promoted:
+                    model_path = run_dir / "candidate_model.joblib"
                     joblib.dump(
                         {"model": candidate_model, "scaler": candidate_scaler},
-                        run_dir / "candidate_model.joblib",
+                        model_path,
                     )
+                    digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                    _dump(run_dir / "model_manifest.json", {
+                        "schema_version": 1,
+                        "pipeline": "continuous_training",
+                        "candidate_promoted": True,
+                        "source_run_id": os.getenv("GITHUB_RUN_ID") or None,
+                        "source_run_attempt": os.getenv("GITHUB_RUN_ATTEMPT") or None,
+                        "source_commit": os.getenv("GITHUB_SHA") or None,
+                        "source_branch": os.getenv("GITHUB_REF_NAME") or None,
+                        "model_file": "candidate_model.joblib",
+                        "report_file": "ct_report.json",
+                        "checksum_algorithm": "sha256",
+                        "model_sha256": digest,
+                    })
             else:
                 report["candidate"] = {
                     "trained": False,

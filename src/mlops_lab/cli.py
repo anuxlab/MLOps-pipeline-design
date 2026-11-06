@@ -39,6 +39,7 @@ def main():
     cd.add_argument("--registry-dir", default="model_registry")
     cd.add_argument("--environment", choices=["dev", "staging", "prod"], required=True)
     cd.add_argument("--model-name", default="mlops-binary-classifier")
+    cd.add_argument("--expected-source-run-id", default=None)
 
     args = parser.parse_args()
     if args.command == "run-baseline":
@@ -63,7 +64,8 @@ def main():
         print(json.dumps(report, indent=2))
     elif args.command == "run-cd":
         version_dir = register_and_deploy(
-            args.source_dir, args.registry_dir, args.environment, args.model_name
+            args.source_dir, args.registry_dir, args.environment, args.model_name,
+            args.expected_source_run_id
         )
         print(f"Model registered and deployed: {version_dir}")
         print((version_dir / "manifest.json").read_text(encoding="utf-8"))

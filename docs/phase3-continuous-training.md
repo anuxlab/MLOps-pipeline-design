@@ -58,3 +58,7 @@ The corrupted-data scenario is expected to exit non-zero while preserving `ct_re
 - Current labels are assumed available for evaluation. Real production systems may have delayed or partial labels.
 - A passing candidate is not automatically deployed; CD is implemented in Phase 4.
 - Each GitHub-hosted job is ephemeral. Later orchestration must transfer outputs using workflow artifacts or another explicit storage layer.
+
+## GitHub artifact publishing contract
+
+Each Phase 3 execution publishes a diagnostic artifact named `phase3-ct-<run_id>-<run_attempt>` containing its report and resource profile. When and only when the candidate is promoted, the workflow also publishes `phase3-candidate-<run_id>-<run_attempt>` containing `candidate_model.joblib`, `ct_report.json`, and `model_manifest.json`. The manifest records GitHub run ID/attempt, commit, branch, promotion status and SHA-256. Phase 4 discovers only the latest-attempt candidate artifact from successful runs on the selected branch.

@@ -4,62 +4,121 @@ on:
   workflow_dispatch:
     inputs:
       source_ct_run_id:
-        description: "GitHub Actions run ID that produced the Phase 3 candidate"
-        required: true
+        description: "Optional override: Phase 3 run ID. Leave blank for automatic discovery."
+        required: false
+        default: ""
         type: string
       source_artifact_name:
-        description: "Exact Phase 3 artifact name (for example phase3-ct-RUNID-1)"
-        required: true
+        description: "Optional override: exact phase3-candidate artifact name. Leave blank for automatic discovery."
+        required: false
+        default: ""
         type: string
       target_environment:
         description: "Deployment environment"
         required: true
-        type: choice
-        options: [dev, staging, prod]
         default: dev
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      discovery_limit:
+        description: "Recent successful Phase 3 runs to inspect (automatic mode)"
+        required: false
+        default: "50"
+        type: string
 
 permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: phase4-cd-${{ inputs.target_environment || 'dev' }}
+  cancel-in-progress: false
+
 jobs:
   continuous-delivery:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .
-      - name: Download candidate from Phase 3 run
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Discover or validate Phase 3 candidate
+        id: source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_BRANCH: main
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MANUAL_SOURCE_RUN_ID: ${{ inputs.source_ct_run_id }}
+          MANUAL_SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
+          DISCOVERY_LIMIT: ${{ inputs.discovery_limit || '50' }}
+        run: |
+          python scripts/discover_candidate.py \\
+            --manual-run-id "$MANUAL_SOURCE_RUN_ID" \\
+            --manual-artifact-name "$MANUAL_SOURCE_ARTIFACT_NAME" \\
+            --limit "$DISCOVERY_LIMIT"
+
+      - name: Download promoted candidate artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.source_artifact_name }}
-          run-id: ${{ inputs.source_ct_run_id }}
+          name: ${{ steps.source.outputs.artifact_name }}
+          run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
           path: artifacts/incoming
-      - name: Validate source and run delivery tests
-        run: pytest -q
+          merge-multiple: true
+
+      - name: Inspect incoming candidate
+        run: |
+          echo "Selection: ${{ steps.source.outputs.selection }}"
+          echo "Source run: ${{ steps.source.outputs.run_id }}"
+          echo "Artifact: ${{ steps.source.outputs.artifact_name }}"
+          find artifacts/incoming -maxdepth 3 -type f -print
+          test -f artifacts/incoming/candidate_model.joblib
+          test -f artifacts/incoming/ct_report.json
+          test -f artifacts/incoming/model_manifest.json
+
+      - name: Run delivery tests
+        run: python -m pytest -q
+
       - name: Register and deploy candidate
         run: |
-          python -m mlops_lab.cli run-cd \
-            --source-dir artifacts/incoming \
-            --registry-dir model_registry \
-            --environment "${{ inputs.target_environment }}"
-      - name: Upload registry, deployment pointer and delivery report
+          python -m mlops_lab.cli run-cd \\
+            --source-dir artifacts/incoming \\
+            --registry-dir model_registry \\
+            --environment "${{ inputs.target_environment || 'dev' }}" \\
+            --expected-source-run-id "${{ steps.source.outputs.run_id }}"
+
+      - name: Upload delivery registry
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-registry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: model_registry/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload delivery diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase4-cd-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            model_registry/
-            artifacts/incoming/ct_report.json
-          if-no-files-found: warn
+          name: phase4-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/incoming/
+          if-no-files-found: ignore
           retention-days: 14

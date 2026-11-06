@@ -144,3 +144,14 @@ Phase 4 downloads a promoted candidate from a Phase 3 run, verifies and register
 
 See `docs/phase4-continuous-delivery.md`. The workflow is manually triggered only. It requires the Phase 3 run ID and exact artifact name; a stable run without a candidate is intentionally rejected.
 
+
+### Phase 4 candidate discovery
+
+Phase 4 now discovers the newest eligible promoted candidate from successful Phase 3 workflow runs on the selected branch. Leave `source_ct_run_id` and `source_artifact_name` blank in the Phase 4 dispatch form to use automatic discovery. Both inputs remain available as optional manual overrides and must be supplied together. Phase 3 publishes a separate `phase3-candidate-*` artifact only when the candidate passes promotion gates; stable runs publish diagnostics only.
+
+
+### Phase 4 automatic candidate discovery
+
+Phase 4 defaults to automatic discovery of the newest promoted Phase 3 candidate on `main`. The optional `source_ct_run_id` and `source_artifact_name` inputs should normally be left blank. Both must be supplied together when using a manual override.
+
+Update and push **both** `.github/workflows/phase3-ct.yml` and `.github/workflows/phase4-cd.yml` from this repository before testing. Phase 3 uploads `phase3-candidate-<run_id>-<attempt>` only after promotion; `phase3-ct-*` is diagnostic-only. Run Phase 3 with `covariate_shift` or `concept_drift` to generate a deployable candidate.

@@ -6,7 +6,7 @@ on:
       scenario:
         description: "Controlled data scenario for CT simulation"
         required: true
-        default: "stable"
+        default: stable
         type: choice
         options:
           - stable
@@ -18,7 +18,7 @@ on:
       scenario:
         description: "Controlled data scenario for CT simulation"
         required: false
-        default: "stable"
+        default: stable
         type: string
 
 permissions:
@@ -49,26 +49,57 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
 
       - name: Run complete test suite
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Execute continuous training pipeline
+        id: ct
         env:
           CT_SCENARIO: ${{ inputs.scenario || 'stable' }}
+        shell: bash
         run: |
-          python -m mlops_lab.cli run-ct \
-            --config configs/ct.yaml \
-            --output-dir artifacts/ct-runs \
+          set +e
+          python -m mlops_lab.cli run-ct \\
+            --config configs/ct.yaml \\
+            --output-dir artifacts/ct-runs \\
             --scenario "$CT_SCENARIO"
+          ct_exit_code=$?
+          set -e
 
-      - name: Upload CT reports and candidate model
-        if: always()
+          mapfile -t reports < <(find artifacts/ct-runs -type f -name ct_report.json)
+          if [ "${#reports[@]}" -ne 1 ]; then
+            echo "Expected exactly one CT report; found ${#reports[@]}."
+            exit 1
+          fi
+          run_dir="$(dirname "${reports[0]}")"
+          promoted="$(python -c 'import json,sys; r=json.load(open(sys.argv[1])); print(str(bool(r.get("candidate",{}).get("promoted"))).lower())' "${reports[0]}")"
+
+          echo "run_dir=$run_dir" >> "$GITHUB_OUTPUT"
+          echo "candidate_promoted=$promoted" >> "$GITHUB_OUTPUT"
+          echo "scenario=$CT_SCENARIO" >> "$GITHUB_OUTPUT"
+          echo "Candidate promoted: $promoted"
+          exit "$ct_exit_code"
+
+      - name: Upload CT diagnostics
+        if: always() && steps.ct.outputs.run_dir != ''
         uses: actions/upload-artifact@v4
         with:
           name: phase3-ct-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/ct-runs/
-          if-no-files-found: warn
+          path: ${{ steps.ct.outputs.run_dir }}/
+          if-no-files-found: error
           retention-days: 14
+
+      - name: Upload deployable promoted candidate
+        if: success() && steps.ct.outputs.candidate_promoted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.ct.outputs.run_dir }}/candidate_model.joblib
+            ${{ steps.ct.outputs.run_dir }}/ct_report.json
+            ${{ steps.ct.outputs.run_dir }}/model_manifest.json
+          if-no-files-found: error
+          retention-days: 30

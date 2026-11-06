@@ -23,6 +23,9 @@ def test_concept_drift_triggers_candidate_training(tmp_path):
     assert "baseline_performance_below_threshold" in report["trigger_decision"]["reasons"]
     assert report["candidate"]["promoted"] is True
     assert (run_dir / "candidate_model.joblib").exists()
+    manifest = json.loads((run_dir / "model_manifest.json").read_text())
+    assert manifest["candidate_promoted"] is True
+    assert manifest["model_sha256"]
 
 
 def test_corrupted_data_fails_validation_and_keeps_report(tmp_path):
