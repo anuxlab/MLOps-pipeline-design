@@ -155,3 +155,21 @@ Phase 4 now discovers the newest eligible promoted candidate from successful Pha
 Phase 4 defaults to automatic discovery of the newest promoted Phase 3 candidate on `main`. The optional `source_ct_run_id` and `source_artifact_name` inputs should normally be left blank. Both must be supplied together when using a manual override.
 
 Update and push **both** `.github/workflows/phase3-ct.yml` and `.github/workflows/phase4-cd.yml` from this repository before testing. Phase 3 uploads `phase3-candidate-<run_id>-<attempt>` only after promotion; `phase3-ct-*` is diagnostic-only. Run Phase 3 with `covariate_shift` or `concept_drift` to generate a deployable candidate.
+
+
+## Phase 5: Integrated CI → CT → CD orchestration
+
+Phase 5 provides one manually triggered workflow that executes the three MLOps stages in dependency order:
+
+```text
+CI (tests + quality gates) → CT (drift + conditional retraining) → CD (registry + environment pointer)
+```
+
+Run it from **Actions → Phase 5 - Integrated MLOps Orchestration → Run workflow**. The default `covariate_shift` scenario is designed to produce a promoted candidate and exercise the complete handoff. Select `stable` to validate the intentional no-candidate path, or `concept_drift` to exercise performance-triggered retraining. `corrupted_data` is an expected CT rejection test.
+
+The pipeline uploads separate CI, CT, candidate and registry artifacts. CD downloads the candidate from the CT job in the same workflow run, so no run ID or artifact name needs to be entered manually. See `docs/phase5-orchestration.md`.
+
+
+### Phase 5 validation status
+
+The Phase 5 workflow is implemented and locally validated. Its GitHub-hosted run is pending. The standalone Phase 2, Phase 3 and Phase 4 workflows remain available for isolated validation.

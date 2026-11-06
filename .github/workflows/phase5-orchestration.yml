@@ -1,0 +1,235 @@
+name: Phase 5 - Integrated MLOps Orchestration
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Continuous-training scenario"
+        required: true
+        default: covariate_shift
+        type: choice
+        options:
+          - stable
+          - covariate_shift
+          - concept_drift
+          - corrupted_data
+      target_environment:
+        description: "Delivery target (simulated environment)"
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      failure_mode:
+        description: "Optional CI failure injection"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - invalid_schema
+          - nan_feature
+          - force_quality_gate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase5-orchestration-${{ github.ref }}-${{ inputs.target_environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  continuous-integration:
+    name: CI - validate data, features and model
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      ci_artifact_name: ${{ steps.meta.outputs.artifact_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Run complete test suite
+        run: python -m pytest -q
+
+      - name: Execute CI pipeline
+        env:
+          FAILURE_MODE: ${{ inputs.failure_mode || 'none' }}
+        run: |
+          python -m mlops_lab.cli run-ci --config configs/ci.yaml --output-dir artifacts/ci-runs --failure-mode "$FAILURE_MODE"
+
+      - name: Set CI artifact metadata
+        id: meta
+        run: echo "artifact_name=phase5-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload CI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ci-runs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  continuous-training:
+    name: CT - detect drift and conditionally retrain
+    needs: continuous-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      candidate_promoted: ${{ steps.ct.outputs.candidate_promoted }}
+      candidate_artifact_name: ${{ steps.ct.outputs.candidate_artifact_name }}
+      ct_run_dir: ${{ steps.ct.outputs.run_dir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Run complete test suite
+        run: python -m pytest -q
+
+      - name: Execute CT pipeline
+        id: ct
+        env:
+          CT_SCENARIO: ${{ inputs.scenario || 'covariate_shift' }}
+        shell: bash
+        run: |
+          set +e
+          python -m mlops_lab.cli run-ct --config configs/ct.yaml --output-dir artifacts/ct-runs --scenario "$CT_SCENARIO"
+          ct_exit_code=$?
+          set -e
+
+          mapfile -t reports < <(find artifacts/ct-runs -type f -name ct_report.json)
+          if [ "${#reports[@]}" -ne 1 ]; then
+            echo "Expected exactly one CT report; found ${#reports[@]}."
+            exit 1
+          fi
+
+          run_dir="$(dirname "${reports[0]}")"
+          promoted="$(python -c 'import json,sys; r=json.load(open(sys.argv[1])); print(str(bool(r.get("candidate",{}).get("promoted"))).lower())' "${reports[0]}")"
+          candidate_artifact="phase5-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          echo "run_dir=$run_dir" >> "$GITHUB_OUTPUT"
+          echo "candidate_promoted=$promoted" >> "$GITHUB_OUTPUT"
+          echo "candidate_artifact_name=$candidate_artifact" >> "$GITHUB_OUTPUT"
+          echo "Candidate promoted: $promoted"
+          exit "$ct_exit_code"
+
+      - name: Upload CT diagnostics
+        if: always() && steps.ct.outputs.run_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-ct-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.ct.outputs.run_dir }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload promoted candidate for CD
+        if: success() && steps.ct.outputs.candidate_promoted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.ct.outputs.run_dir }}/candidate_model.joblib
+            ${{ steps.ct.outputs.run_dir }}/ct_report.json
+            ${{ steps.ct.outputs.run_dir }}/model_manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  continuous-delivery:
+    name: CD - register and deploy promoted candidate
+    needs: continuous-training
+    if: needs.continuous-training.outputs.candidate_promoted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Download candidate from CT job
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.continuous-training.outputs.candidate_artifact_name }}
+          path: artifacts/incoming
+          merge-multiple: true
+
+      - name: Validate artifact handoff
+        run: |
+          find artifacts/incoming -maxdepth 2 -type f -print
+          test -f artifacts/incoming/candidate_model.joblib
+          test -f artifacts/incoming/ct_report.json
+          test -f artifacts/incoming/model_manifest.json
+
+      - name: Run delivery tests
+        run: python -m pytest -q
+
+      - name: Register and deploy to selected environment
+        run: |
+          python -m mlops_lab.cli run-cd --source-dir artifacts/incoming --registry-dir model_registry --environment "${{ inputs.target_environment || 'dev' }}" --expected-source-run-id "${{ github.run_id }}"
+
+      - name: Upload model registry
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-registry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: model_registry/
+          if-no-files-found: error
+          retention-days: 30
+
+  no-candidate:
+    name: CD not required - no promoted candidate
+    needs: continuous-training
+    if: needs.continuous-training.outputs.candidate_promoted != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain conditional delivery skip
+        run: |
+          echo "CT completed without promoting a candidate."
+          echo "This is expected for the stable scenario."
+          echo "CD is skipped because there is no deployable model candidate."
