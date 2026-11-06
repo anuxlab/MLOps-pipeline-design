@@ -1,31 +1,47 @@
-# Phase 5 Validation
+# Phase 5 — GitHub-hosted validation
 
-## Local validation — 2026-11-06
+## Run identity
 
-- Existing automated test suite: 33 passed.
-- Phase 2 CI CLI: passed.
-- Phase 3 CT CLI (`covariate_shift`): passed.
-- Candidate promotion: passed.
-- Candidate manifest source run ID: `555555555` (local test fixture).
-- Phase 4 registry CLI: passed.
-- Target environment: `dev`.
-- Registry environment pointer: created.
-- Registry manifest records the source run ID and SHA-256 checksum.
+- GitHub Actions run: `42176888963`
+- Branch: `main`
+- Commit: `a0b45fd5a18e4737e3fa9aad0a59dcb199469bfa`
+- Scenario: `covariate_shift`
+- Target environment: `dev`
+- CI, CT, candidate and registry artifacts were supplied and independently inspected.
 
-The local simulation used the existing CI, CT and CD command-line interfaces sequentially. It validates the application-level pipeline contract, not GitHub Actions scheduling, artifact service behavior or hosted-runner permissions.
+## CI artifact
 
-## GitHub validation pending
+- Status: passed.
+- Accuracy: 0.7776.
+- Precision: 0.7729.
+- Recall: 0.7853.
+- F1: 0.7790.
+- ROC-AUC: 0.8617.
+- Data contract and feature transformation checks passed.
+- Accuracy and ROC-AUC gates passed.
 
-The Phase 5 workflow has not yet been executed on GitHub Actions. The first hosted run should use:
+## CT artifact
 
-- Scenario: `covariate_shift`.
-- Target environment: `dev`.
-- Failure mode: `none`.
+- Status: passed.
+- Drift method: two-sample Kolmogorov–Smirnov.
+- Drifted features: 10 / 20 (50%).
+- Retraining triggered due to feature drift.
+- Baseline accuracy: 0.7307.
+- Candidate accuracy: 0.7653.
+- Accuracy improvement: 0.0347.
+- Candidate quality gate and promotion passed.
 
-Expected jobs:
+## Candidate and registry artifacts
 
-1. CI completes successfully and uploads `phase5-ci-*`.
-2. CT detects drift, promotes a candidate, and uploads `phase5-ct-*` and `phase5-candidate-*`.
-3. CD downloads the candidate from the same workflow run, validates it, registers it and uploads `phase5-registry-*`.
+- Candidate files: `candidate_model.joblib`, `ct_report.json`, `model_manifest.json`.
+- Source run ID: `42176888963`; attempt: `1`.
+- Registry version: `v20261106T065115Z-ab43dbfe`.
+- Environment pointer: `dev`.
+- Registry manifest source run ID matches candidate provenance.
+- Candidate and registry model SHA-256 both equal:
+  `6c2b0e0b7bbbd7b28fa30662364c018f54da65b98e984445530aada10166d4db`.
+- Registry archive contains model, version manifest, source manifest and environment pointer.
 
-The `stable` scenario should complete CI and CT successfully while intentionally skipping CD because no candidate is promoted. `corrupted_data` should fail CT and must not run CD.
+## Conclusion
+
+Phase 5 CI → CT → CD orchestration is validated from the supplied GitHub-hosted artifacts. All four archives passed ZIP integrity checks. The artifact handoff, promotion decision, registry pointer and model checksum are consistent.

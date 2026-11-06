@@ -6,6 +6,7 @@ from .pipeline import run_baseline
 from .ci_pipeline import run_ci
 from .ct_pipeline import run_ct
 from .registry import register_and_deploy
+from .monitoring import run_monitoring
 
 
 def main():
@@ -41,6 +42,13 @@ def main():
     cd.add_argument("--model-name", default="mlops-binary-classifier")
     cd.add_argument("--expected-source-run-id", default=None)
 
+    monitor = subparsers.add_parser("run-monitor", help="Run Phase 6 model and data monitoring")
+    monitor.add_argument("--registry-dir", default="model_registry")
+    monitor.add_argument("--environment", choices=["dev", "staging", "prod"], default="dev")
+    monitor.add_argument("--output-dir", default="artifacts/monitoring-runs")
+    monitor.add_argument("--scenario", choices=["normal", "prediction_drift", "quality_degradation", "invalid_input"], default="normal")
+    monitor.add_argument("--config", default="configs/monitoring.yaml")
+
     args = parser.parse_args()
     if args.command == "run-baseline":
         config = load_config(args.config)
@@ -62,6 +70,10 @@ def main():
         print(f"ML CT pipeline completed: {run_dir}")
         report = json.loads((run_dir / "ct_report.json").read_text(encoding="utf-8"))
         print(json.dumps(report, indent=2))
+    elif args.command == "run-monitor":
+        run_dir = run_monitoring(args.registry_dir, args.environment, args.output_dir, args.scenario, args.config)
+        print(f"Monitoring completed: {run_dir}")
+        print((run_dir / "monitoring_report.json").read_text(encoding="utf-8"))
     elif args.command == "run-cd":
         version_dir = register_and_deploy(
             args.source_dir, args.registry_dir, args.environment, args.model_name,

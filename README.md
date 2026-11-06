@@ -173,3 +173,12 @@ The pipeline uploads separate CI, CT, candidate and registry artifacts. CD downl
 ### Phase 5 validation status
 
 The Phase 5 workflow is implemented and locally validated. Its GitHub-hosted run is pending. The standalone Phase 2, Phase 3 and Phase 4 workflows remain available for isolated validation.
+
+
+## Phase 5 validation
+
+Phase 5 is now GitHub-hosted validated. The supplied CI, CT, candidate and registry artifacts from run `42176888963` were inspected. Candidate provenance, registry environment pointer and SHA-256 checksums matched. See `docs/phase5-validation.md`.
+
+## Phase 6: Model Monitoring and Reliability
+
+Phase 6 adds batch monitoring for feature drift (KS), prediction drift (PSI), model performance (accuracy/ROC-AUC), input contracts and registry model integrity. Its manually triggered workflow automatically discovers the latest eligible Phase 5 registry artifact on `main`. See `docs/phase6-monitoring.md`.

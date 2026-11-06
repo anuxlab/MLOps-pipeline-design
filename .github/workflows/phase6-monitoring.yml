@@ -1,0 +1,102 @@
+name: Phase 6 - Model Monitoring and Reliability
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Monitoring scenario"
+        required: true
+        default: normal
+        type: choice
+        options:
+          - normal
+          - prediction_drift
+          - quality_degradation
+          - invalid_input
+      environment:
+        description: "Registry environment to monitor"
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: phase6-monitoring-${{ github.ref }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Discover deployed model and monitor live-like batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Discover latest Phase 5 registry automatically
+        id: registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SOURCE_BRANCH: main
+        run: python scripts/discover_registry.py
+
+      - name: Download Phase 5 registry artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.registry.outputs.artifact_name }}
+          run-id: ${{ steps.registry.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: model_registry
+
+      - name: Verify registry and run monitoring
+        id: monitoring
+        env:
+          MONITOR_SCENARIO: ${{ inputs.scenario }}
+          MONITOR_ENVIRONMENT: ${{ inputs.environment }}
+        shell: bash
+        run: |
+          set +e
+          python -m mlops_lab.cli run-monitor --registry-dir model_registry --environment "$MONITOR_ENVIRONMENT" --output-dir artifacts/monitoring-runs --scenario "$MONITOR_SCENARIO"
+          result=$?
+          set -e
+          reports=$(find artifacts/monitoring-runs -type f -name monitoring_report.json | wc -l)
+          if [ "$reports" -ne 1 ]; then
+            echo "Expected one monitoring report; found $reports"
+            exit 1
+          fi
+          report=$(find artifacts/monitoring-runs -type f -name monitoring_report.json | head -n 1)
+          python -c 'import json,sys; r=json.load(open(sys.argv[1])); print(json.dumps({"status":r["status"],"decision":r.get("monitoring_decision"),"alerts":r.get("alerts",[])},indent=2))' "$report"
+          exit "$result"
+
+      - name: Upload monitoring evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase6-monitoring-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/monitoring-runs/
+          if-no-files-found: warn
+          retention-days: 30
